@@ -41,16 +41,18 @@ def _confirm(message: str, default: bool = True):
     return questionary.confirm(message, default=default, style=_STYLE, qmark=QMARK).ask()
 
 
+# shortcut_key lets the user jump straight to an item by pressing one key
+# (mnemonic where possible), instead of arrowing down. Keys must be unique.
 MENU_MAIN = [
-    Choice("📥  Download audiobooks", value="download"),
-    Choice("🏷️   Enrich existing .m4b files", value="enrich"),
-    Choice("🗂️   Organize into Author/Title folders", value="organize"),
-    Choice("📄  Fetch companion PDFs", value="pdfs"),
-    Choice("🔍  Audit a folder's tag/chapter/cover health", value="audit"),
-    Choice("🩺  Doctor — check downloads will work", value="doctor"),
-    Choice("🔄  Refresh library cache", value="sync"),
-    Choice("🔑  Account", value="account"),
-    Choice("🚪  Exit", value="exit"),
+    Choice("📥  Download audiobooks", value="download", shortcut_key="d"),
+    Choice("🏷️   Enrich existing .m4b files", value="enrich", shortcut_key="e"),
+    Choice("🗂️   Organize into Author/Title folders", value="organize", shortcut_key="o"),
+    Choice("📄  Fetch companion PDFs", value="pdfs", shortcut_key="p"),
+    Choice("🔍  Audit a folder's tag/chapter/cover health", value="audit", shortcut_key="a"),
+    Choice("🩺  Doctor — check downloads will work", value="doctor", shortcut_key="c"),
+    Choice("🔄  Refresh library cache", value="sync", shortcut_key="r"),
+    Choice("🔑  Account", value="account", shortcut_key="u"),
+    Choice("🚪  Exit", value="exit", shortcut_key="q"),
 ]
 
 
@@ -91,7 +93,7 @@ def run(profile: str = "default") -> None:
     settings = Settings.load()
 
     while True:
-        choice = _select("What would you like to do?", MENU_MAIN)
+        choice = _select("What would you like to do?", MENU_MAIN, use_shortcuts=True)
         if choice is None or choice == "exit":
             console.print("\n[accent]Happy listening. 🎧[/accent]\n")
             return
@@ -409,21 +411,28 @@ def _menu_pdfs(profile: str) -> None:
     if not have_pdf:
         info("no titles in your library have a companion PDF")
         return
+
+    info(f"{len(have_pdf)} title(s) in your library have a companion PDF.")
+    picked = pick_books(have_pdf)  # same search-and-select picker as downloading
+    if not picked:
+        info("nothing selected")
+        return
+
     dest_dir = Path(_text("Save PDFs to:", default=str(pdf_cache_dir())) or pdf_cache_dir()).expanduser()
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     with open_session(profile) as (auth, client):
         ok, fail = 0, []
         with step_progress("Fetching companion PDFs") as p:
-            t = p.add_task("pdf", total=len(have_pdf))
-            for item in have_pdf:
+            t = p.add_task("pdf", total=len(picked))
+            for item in picked:
                 success_, reason = api.fetch_companion_pdf(auth, item, dest_dir / f"{item['asin']}.pdf")
                 if success_:
                     ok += 1
                 else:
                     fail.append((item["title"], reason))
                 p.advance(t)
-    success(f"{ok}/{len(have_pdf)} PDFs in {dest_dir}")
+    success(f"{ok}/{len(picked)} PDFs in {dest_dir}")
     if fail:
         warn(f"{len(fail)} failed")
         for title, reason in fail[:10]:
@@ -489,12 +498,13 @@ def _menu_account(profile: str) -> None:
     choice = _select(
         "Account",
         [
-            Choice("Show status", "status"),
-            Choice("Import an existing auth file", "import"),
-            Choice("Switch profile", "switch"),
-            Choice("Sign out", "logout"),
-            Choice("« back", "back"),
+            Choice("Show status", "status", shortcut_key="s"),
+            Choice("Import an existing auth file", "import", shortcut_key="i"),
+            Choice("Switch profile", "switch", shortcut_key="w"),
+            Choice("Sign out", "logout", shortcut_key="o"),
+            Choice("« back", "back", shortcut_key="b"),
         ],
+        use_shortcuts=True,
     )
     if choice == "status":
         s = auth_mod.status(profile)
