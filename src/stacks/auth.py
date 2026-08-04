@@ -17,7 +17,7 @@ import questionary
 from rich.console import Console
 
 from . import config
-from .ui import THEME, panel
+from .ui import THEME, panel, warn
 
 console = Console()
 
@@ -28,6 +28,23 @@ class AuthError(RuntimeError):
     pass
 
 
+def _prompt_code(message: str) -> str:
+    """Ask for a required code, re-prompting on empty input.
+
+    Audible hangs (and eventually times out) if handed an empty CAPTCHA/OTP/CVF
+    string, so an empty line must never be submitted — we loop until there's
+    real input. A cancel (Ctrl-C / Esc, which questionary returns as ``None``)
+    aborts the whole login rather than sending ``""``."""
+    while True:
+        answer = questionary.text(message).ask()
+        if answer is None:
+            raise AuthError("login cancelled")
+        answer = answer.strip()
+        if answer:
+            return answer
+        warn("nothing entered — type the code, then press Enter")
+
+
 def _captcha_callback(captcha_url: str) -> str:
     panel(
         "A CAPTCHA is required to continue.\n\n"
@@ -35,15 +52,21 @@ def _captcha_callback(captcha_url: str) -> str:
         title="CAPTCHA",
         style=THEME["warn"],
     )
-    return questionary.text("CAPTCHA answer:").ask() or ""
+    return _prompt_code("CAPTCHA answer:")
 
 
 def _otp_callback() -> str:
-    return questionary.text("Enter your one-time password (OTP/2FA code):").ask() or ""
+    return _prompt_code("Enter your one-time password (OTP/2FA code):")
 
 
 def _cvf_callback() -> str:
-    return questionary.text("Enter the verification code Audible sent you:").ask() or ""
+    panel(
+        "Audible sent a verification code to your email or phone.\n"
+        "Enter it below once it arrives.",
+        title="Verification code",
+        style=THEME["warn"],
+    )
+    return _prompt_code("Verification code:")
 
 
 def _approval_callback() -> None:
@@ -53,7 +76,7 @@ def _approval_callback() -> None:
         title="Approval needed",
         style=THEME["warn"],
     )
-    questionary.text("Press Enter once approved...").ask()
+    questionary.press_any_key_to_continue("Press Enter once you've approved it...").ask()
 
 
 def login(profile: str = "default", locale: Optional[str] = None) -> audible.Authenticator:
@@ -90,17 +113,42 @@ def login(profile: str = "default", locale: Optional[str] = None) -> audible.Aut
     if encrypt:
         file_password = getpass.getpass("Choose a password to protect the local auth file: ")
 
-    with console.status("Authenticating with Audible...", spinner="dots12"):
+    # The spinner is a Rich live display that owns the terminal; questionary
+    # prompts drawn underneath it are invisible. Any callback that needs input
+    # must pause the spinner first, or the user sees a blank line and submits
+    # an empty answer. `_interactive` wraps each callback to do exactly that.
+    status = console.status("Authenticating with Audible...", spinner="dots12")
+
+    def _interactive(callback):
+        def wrapped(*args, **kwargs):
+            status.stop()
+            try:
+                return callback(*args, **kwargs)
+            finally:
+                status.start()
+        return wrapped
+
+    status.start()
+    try:
         auth = audible.Authenticator.from_login(
             username,
             password,
             locale=locale,
             with_username=False,
-            captcha_callback=_captcha_callback,
-            otp_callback=_otp_callback,
-            cvf_callback=_cvf_callback,
-            approval_callback=_approval_callback,
+            captcha_callback=_interactive(_captcha_callback),
+            otp_callback=_interactive(_otp_callback),
+            cvf_callback=_interactive(_cvf_callback),
+            approval_callback=_interactive(_approval_callback),
         )
+    except AuthError:
+        raise
+    except Exception as e:  # noqa: BLE001 — present any transport/API failure as a clean message
+        raise AuthError(
+            f"Audible sign-in didn't complete ({type(e).__name__}: {str(e)[:160]}). "
+            "This is usually a mistyped/expired code or a network hiccup — try again."
+        ) from e
+    finally:
+        status.stop()
 
     dest = config.auth_file(profile)
     auth.to_file(dest, password=file_password, encryption="json" if file_password else False)
