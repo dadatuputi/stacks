@@ -13,7 +13,7 @@ from typing import List, Optional
 
 import typer
 
-from . import api, audit as audit_mod, auth as auth_mod, catalog, matcher, organizer, tagger
+from . import api, audit as audit_mod, auth as auth_mod, catalog, doctor as doctor_mod, matcher, organizer, tagger
 from .config import Settings, pdf_cache_dir
 from .session import open_session
 from .ui import console, error, info, make_table, panel, step_progress, success, warn
@@ -338,6 +338,50 @@ def audit(
     if json_out:
         json_out.write_text(json.dumps(rows, indent=1, ensure_ascii=False))
         success(f"wrote {json_out}")
+
+
+# -------------------------------------------------------------------- doctor
+
+
+_DOCTOR_STATUS = {
+    "ok": ("success", "✓"),
+    "warn": ("warn", "!"),
+    "fail": ("danger", "✗"),
+    "skip": ("dim", "·"),
+}
+
+
+def render_doctor(checks) -> str:
+    """Print a doctor report and return the overall status. Shared by the CLI
+    command and the interactive menu."""
+    table = make_table("Preflight checks", ["", "Check", "Result"])
+    for c in checks:
+        style, icon = _DOCTOR_STATUS.get(c.status, ("dim", "·"))
+        table.add_row(f"[{style}]{icon}[/{style}]", c.name, c.detail)
+        if c.hint and c.status in ("warn", "fail"):
+            table.add_row("", "", f"[dim]↳ {c.hint}[/dim]")
+    console.print(table)
+
+    overall = doctor_mod.worst_status(checks)
+    if overall == "ok":
+        success("all systems go — ready to download")
+    elif overall == "warn":
+        warn("usable, but some things could bite you — see the hints above")
+    else:
+        error("not ready — resolve the failing checks above before downloading")
+    return overall
+
+
+@app.command()
+def doctor(
+    ctx: typer.Context,
+    online: bool = typer.Option(False, "--online", help="Also make a live Audible API call to confirm your auth token still works."),
+):
+    """Check that ffmpeg, your login, and the environment can actually download + decrypt."""
+    checks = doctor_mod.run_checks(ctx.obj["profile"], online=online)
+    overall = render_doctor(checks)
+    if overall == "fail":
+        raise typer.Exit(1)
 
 
 def main() -> None:

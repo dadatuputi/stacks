@@ -7,7 +7,7 @@ from pathlib import Path
 import questionary
 from questionary import Choice
 
-from . import api, audit as audit_mod, auth as auth_mod, catalog, downloader, matcher, organizer, tagger
+from . import api, audit as audit_mod, auth as auth_mod, catalog, doctor as doctor_mod, downloader, matcher, organizer, tagger
 from .config import Settings, pdf_cache_dir
 from .session import open_session
 from .ui import THEME, banner, console, download_progress, error, info, make_table, panel, random_tagline, step_progress, success, warn
@@ -47,6 +47,7 @@ MENU_MAIN = [
     Choice("🗂️   Organize into Author/Title folders", value="organize"),
     Choice("📄  Fetch companion PDFs", value="pdfs"),
     Choice("🔍  Audit a folder's tag/chapter/cover health", value="audit"),
+    Choice("🩺  Doctor — check downloads will work", value="doctor"),
     Choice("🔄  Refresh library cache", value="sync"),
     Choice("🔑  Account", value="account"),
     Choice("🚪  Exit", value="exit"),
@@ -116,6 +117,8 @@ def _dispatch(choice: str, profile: str, settings: Settings) -> None:
         _menu_pdfs(profile)
     elif choice == "audit":
         _menu_audit(settings)
+    elif choice == "doctor":
+        _menu_doctor(profile)
     elif choice == "account":
         _menu_account(profile)
 
@@ -435,6 +438,18 @@ def _menu_audit(settings: Settings) -> None:
         warn(f"{len(s['no_chapters'])} file(s) with no chapters:")
         for f in s["no_chapters"][:10]:
             console.print(f"    [dim]{f}[/dim]")
+
+
+# ------------------------------------------------------------------ doctor
+
+
+def _menu_doctor(profile: str) -> None:
+    from .cli import render_doctor
+
+    online = _confirm("Also make a live Audible API call to confirm your login still works?", default=False)
+    with console.status("Running preflight checks...", spinner="dots12"):
+        checks = doctor_mod.run_checks(profile, online=online)
+    render_doctor(checks)
 
 
 # ------------------------------------------------------------------ account

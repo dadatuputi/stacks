@@ -40,6 +40,11 @@ your Audible library, downloaded · decrypted · tagged · shelved
   behind account ownership.
 - **Audit** — a read-only health report on a folder of `.m4b` files:
   chapter coverage, cover art presence/size, tag coverage.
+- **Doctor** — a one-shot preflight (`stacks doctor`) that verifies the
+  things a download silently depends on: an ffmpeg build with Audible AAXC
+  decrypt support, a login whose saved device identity can derive the
+  decryption key, a synced library cache, and a writable download folder with
+  room to spare. `--online` also pings Audible to confirm your token is live.
 
 Everything above is also a scriptable, flag-driven subcommand — the
 interactive menu is a convenience layer on top, not the only way in.
@@ -77,6 +82,7 @@ companion PDFs, or audit what's on disk.
 Everything is also scriptable:
 
 ```bash
+stacks doctor                                  # preflight: ffmpeg, login, cache, disk — before you download
 stacks auth login                              # one-time sign-in
 stacks library sync                            # cache your library (auto-runs on first use too)
 stacks library list --search "sanderson"       # browse the cache

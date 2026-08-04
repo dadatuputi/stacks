@@ -26,6 +26,7 @@ interactive menu (`stacks` with no args) and scriptable subcommands.
 | `matcher.py` | Fuzzy-matches an arbitrary local `.m4b` back to a library item (ASIN tag → filename → title → title+duration → tokens/prefix+duration). Used by `enrich` for files that didn't come from `stacks download`. |
 | `organizer.py` | Folder-layout planning with narrator→year→ASIN disambiguation, author-alias clustering/suggestion. |
 | `audit.py` | Read-only ffprobe/mutagen report on a folder of `.m4b`s. |
+| `doctor.py` | Preflight diagnostics (ffmpeg+AAXC support, auth/device-identity, library cache, download-dir writability/space, optional live API probe). Pure/injectable check functions, testable without a real environment. |
 | `catalog.py` | Presentation-layer search/labeling over the cached library, used by both `cli.py` and `interactive.py`. |
 | `ui.py` | Rich theme, banner, table/progress-bar factories — all the "snazzy" visuals live here. |
 | `interactive.py` | The menu-driven flow. Two functions (`pick_books`, `run_downloads`) are deliberately public because `cli.py`'s `download` command reuses them when invoked without explicit ASINs. |
@@ -107,6 +108,12 @@ python -m pyflakes src/stacks/*.py   # should be silent
   against a real chapters.json response shape (field names like
   `start_offset_ms` vs `start_ms` are guessed defensively with `_chapter_field`
   fallbacks, not confirmed).
-- No `stacks doctor`/preflight command that checks ffmpeg version, auth
-  validity, and disk space before a batch download — would be a nice
-  addition once the core path is confirmed working.
+- ~~No `stacks doctor`/preflight command~~ — done. `stacks doctor` (and the
+  🩺 menu entry) checks ffmpeg presence + **AAXC decrypt support** (probes
+  `ffmpeg -h demuxer=mov` for `-audible_key`, the accurate signal — note the
+  standalone `aax` demuxer ffmpeg lists is CRI's unrelated format), ffprobe,
+  auth file + the three device-identity fields the voucher key derives from,
+  library-cache freshness, and download-dir writability/free space. `--online`
+  adds a live single-item library call to confirm the token isn't expired.
+  Exit code is nonzero only on a hard `fail`. It notably catches the gap
+  `downloader.require_ffmpeg()` misses: an ffmpeg that exists but can't do AAXC.
