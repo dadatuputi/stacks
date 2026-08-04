@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stacks-cli"
+version = "0.1.0"
+description = "A snazzy interactive CLI to download, decrypt, tag, and organize your Audible library."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Bradford" }]
+keywords = ["audible", "audiobooks", "m4b", "cli", "metadata"]
+
+dependencies = [
+    "audible>=0.10.0",
+    "typer>=0.12.0",
+    "rich>=13.7.0",
+    "questionary>=2.0.0",
+    "mutagen>=1.47.0",
+    "httpx>=0.27.0",
+    "cryptography>=42.0.0",
+    "pyfiglet>=1.0.0",
+    "platformdirs>=4.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+
+[project.scripts]
+stacks = "stacks.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
