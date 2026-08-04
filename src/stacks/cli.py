@@ -82,11 +82,26 @@ def auth_status(ctx: typer.Context):
 
 
 @auth_app.command("logout")
-def auth_logout(ctx: typer.Context):
-    if auth_mod.logout(ctx.obj["profile"]):
-        success("signed out")
-    else:
-        info("nothing to sign out of")
+def auth_logout(
+    ctx: typer.Context,
+    keep_device: bool = typer.Option(False, "--keep-device", help="Only delete the local file; leave the device registered with Amazon."),
+):
+    removed, note = auth_mod.logout(ctx.obj["profile"], deregister=not keep_device)
+    (success if removed else info)(note)
+
+
+@auth_app.command("deregister-all")
+def auth_deregister_all(ctx: typer.Context):
+    """Deregister EVERY device on the account (including the Audible app on your
+    phone) to clear a pile-up of stale registrations causing API 403s."""
+    if not typer.confirm("This signs out ALL your Audible devices, everywhere. Continue?"):
+        raise typer.Exit()
+    try:
+        note = auth_mod.deregister_all(ctx.obj["profile"])
+    except auth_mod.AuthError as e:
+        error(str(e))
+        raise typer.Exit(1)
+    success(note)
 
 
 # ------------------------------------------------------------------ library

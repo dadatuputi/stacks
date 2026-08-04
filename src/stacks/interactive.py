@@ -484,8 +484,8 @@ def _menu_account(profile: str) -> None:
         except auth_mod.AuthError as e:
             error(str(e))
     elif choice == "logout":
-        if _confirm(f"Sign out profile '{profile}'? This deletes the local auth file.", default=False):
-            auth_mod.logout(profile)
-            success("signed out")
+        if _confirm(f"Sign out profile '{profile}'? This deregisters the device with Amazon and deletes the local auth file.", default=False):
+            _, note = auth_mod.logout(profile)
+            success(note)
     elif choice == "switch":
         info("Run `stacks --profile <name>` to use a different saved login.")

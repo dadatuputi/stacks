@@ -200,12 +200,36 @@ def load(profile: str = "default") -> audible.Authenticator:
         return audible.Authenticator.from_file(dest, password=pw)
 
 
-def logout(profile: str = "default") -> bool:
+def logout(profile: str = "default", deregister: bool = True) -> tuple[bool, str]:
+    """Sign out of a profile. By default also deregisters the device with
+    Amazon, not just the local file — otherwise every `auth login` leaves an
+    orphaned 'Audible for iPhone' registration behind, and once enough pile up
+    Audible stops honoring new ones (API calls 403 'could not be
+    authenticated'). Returns (removed_local, human-readable note)."""
     dest = config.auth_file(profile)
-    if dest.exists():
-        dest.unlink()
-        return True
-    return False
+    if not dest.exists():
+        return False, "nothing to sign out of"
+    note = "removed local auth"
+    if deregister:
+        try:
+            auth = load(profile)
+            auth.deregister_device()
+            note = "deregistered the device with Amazon and removed local auth"
+        except Exception as e:  # noqa: BLE001 — still remove the local file even if deregister fails
+            note = f"removed local auth (couldn't deregister with Amazon: {str(e)[:80]})"
+    dest.unlink()
+    return True, note
+
+
+def deregister_all(profile: str = "default") -> str:
+    """Deregister EVERY device on the account (this stacks profile, the Audible
+    app on your phone, everything) and remove the local auth file. Use this to
+    clear a pile-up of stale registrations that's causing API 403s. You'll need
+    to sign back in everywhere afterward."""
+    auth = load(profile)
+    auth.deregister_device(deregister_all=True)
+    config.auth_file(profile).unlink(missing_ok=True)
+    return "deregistered all devices on the account and removed local auth"
 
 
 def status(profile: str = "default") -> dict:
