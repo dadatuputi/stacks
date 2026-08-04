@@ -62,7 +62,10 @@ def _otp_callback() -> str:
 def _cvf_callback() -> str:
     panel(
         "Audible sent a verification code to your email or phone.\n"
-        "Enter it below once it arrives.",
+        "Enter it below once it arrives.\n\n"
+        "[dim]Not arriving? Turn on an authenticator app under Amazon → Login &\n"
+        "Security → Two-Step Verification, then sign in again — you'll be asked\n"
+        "for an authenticator (OTP) code instead, which is more reliable.[/dim]",
         title="Verification code",
         style=THEME["warn"],
     )
