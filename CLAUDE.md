@@ -38,57 +38,42 @@ library in a prior session and worked cleanly (100% chapter/cover/tag
 coverage, correct disambiguation, correct alias merging). That logic is
 proven. Tests in `tests/` cover it with synthetic data.
 
-## What is NOT yet verified
+## Download path — VERIFIED (2026-08-03)
 
-`api.resolve_download` + `crypto.decrypt_voucher` + `downloader._decrypt_and_remux`
-— the actual license-request → AAXC-decrypt → ffmpeg-remux path — has never
-completed a real end-to-end run. It's built from:
+The full license-request → AAXC-decrypt → ffmpeg-remux path has now completed
+real end-to-end runs against a live account (3 books: Cricket in Times Square,
+Alien: Out of the Shadows, Ponzi Supernova). Each produced a valid `.m4b` that
+decodes to clean stereo narration (mean ≈ −21 dB), with titled chapters and
+embedded cover art. Two real bugs surfaced and were fixed during that run:
 
-- the `audible` Python package's documented method signatures (`from_login`,
-  `get_activation_bytes`, `Authenticator.device_info`/`customer_info`)
-- `audible-cli`'s known request shapes for `content/{asin}/licenserequest`
-  and AAXC voucher decryption (device_type+serial+customer_id+asin →
-  SHA256 → AES-CBC key/iv)
-- ffmpeg's documented `-audible_key`/`-audible_iv` flags for its AAXC demuxer
+1. **Download UA (`downloader._stream_to_file`).** The CloudFront audio
+   endpoint 403s a browser User-Agent; it only serves the file to an
+   Audible-app UA. Fixed by streaming with `api.AUDIBLE_UA`
+   (`Audible/671 CFNetwork/...`). The website/PDF routes still use
+   `api.BROWSER_UA` — don't unify them.
+2. **AAXC vs AAX detection (`api.resolve_download`).** Modern Audible serves
+   **AAXC** (voucher-encrypted) even when the license reports
+   `content_format: "AAX_22_64"` and `drm_type: "Adrm"` — the downloaded file's
+   brand is still `aaxc` and ffmpeg needs `-audible_key`/`-audible_iv`, not
+   `-activation_bytes`. Feeding `-activation_bytes` to an AAXC file does NOT
+   error — ffmpeg silently stream-copies the still-encrypted audio, yielding a
+   valid-looking container whose audio decodes to ~27-channel garbage. Detection
+   is now by voucher presence (`content_license.license_response`), not the
+   format string. `crypto.decrypt_voucher` is confirmed correct (32-hex-char
+   key + iv, accepted by ffmpeg's aaxc demuxer).
 
-...but every environment available to the agent that wrote this (a
-cloud sandbox, and a "device_bash" automation VM reached via a desktop
-bridge) sits behind a network allowlist that blocks both PyPI and
-Audible's API — so `pip install` and any live API call fail with
-`blocked-by-allowlist` before ever reaching Audible. **If you're Claude
-Code running directly on the user's own machine, you likely don't have
-that restriction — you may be able to complete the test the prior agent
-couldn't.**
+Regression-check a suspect decrypt by **decoding**, not probing: a bad decrypt
+passes `ffprobe` (container metadata is intact) but `ffmpeg -i file -t 10 -f
+null -` throws `channel element not allocated` / decodes as 27 channels.
 
-### The test to run
+Legacy true-AAX (voucher-less, `activation_bytes`) and DRM-free branches exist
+but haven't been exercised against a real file — no AAX-only titles were in the
+test account.
 
-```bash
-pipx install .        # or: pip install -e ".[dev]" in a venv
-stacks auth import /path/to/existing/auth.txt --no-encrypt   # or `stacks auth login`
-stacks library sync
-stacks download "Rikki Tikki Tavi"    # ASIN B0098OONQG, ~35 min — shortest title in this account's library, fast to iterate on
-```
+### Fast iteration title
 
-If it fails, the traceback will point at one of three places, roughly in
-order of likelihood:
-
-1. **`api.resolve_download`'s `_dig()` calls** — the exact key path to the
-   download URL in the license response (`content_url.offline_url` vs
-   `content_reference.content_url.offline_url`) was reconstructed from a
-   summarized (not verbatim) read of `audible-cli`'s source, so the nesting
-   may be slightly off for the current API version. Fix: add a debug dump
-   of the raw `licenserequest` JSON on `ApiError`, inspect it, adjust the
-   `_dig` paths.
-2. **`crypto.decrypt_voucher`** — if the key/iv derivation is wrong, ffmpeg
-   will fail to decrypt with a clear error, or produce corrupt/silent
-   audio. Cross-check against `audible`'s actual installed
-   `audible.aescipher` module in the working environment if this happens —
-   it's the ground truth this was reimplemented from.
-3. **ffmpeg version** — `-audible_key`/`-audible_iv` need a build with AAXC
-   demuxer support (anything reasonably recent). `ffmpeg -version` first.
-
-Once a real download succeeds, update this section (or just delete it) —
-don't leave stale "unverified" warnings in a repo that's since verified.
+`stacks download "Ponzi Supernova"` (ASIN B06Y4G67WB, free, ~72 MB) is the
+quickest real download to test with.
 
 ## Running tests
 

@@ -35,6 +35,10 @@ BROWSER_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
+# The CloudFront audio endpoint 403s a browser UA — it only serves the AAX/AAXC
+# file to an Audible-app UA (verified against a real download). Use this for the
+# encrypted-audio stream specifically; the website/PDF routes still want BROWSER_UA.
+AUDIBLE_UA = "Audible/671 CFNetwork/1240.0.4 Darwin/20.6.0"
 
 
 class ApiError(RuntimeError):
@@ -166,7 +170,7 @@ def resolve_download(auth: audible.Authenticator, client: audible.Client, asin: 
     content_license = lr.get("content_license") or {}
     metadata = content_license.get("content_metadata") or {}
 
-    codec = _dig(metadata, ("content_reference", "content_format")) or "AAXC"
+    reported_format = _dig(metadata, ("content_reference", "content_format")) or ""
     url = _dig(
         metadata,
         ("content_url", "offline_url"),
@@ -176,20 +180,26 @@ def resolve_download(auth: audible.Authenticator, client: audible.Client, asin: 
     if not url:
         raise ApiError(
             f"couldn't find a download URL in the license response for {asin} "
-            f"(codec reported as {codec!r}) — Audible may have changed its API shape"
+            f"(format reported as {reported_format!r}) — Audible may have changed its API shape"
         )
 
-    if codec.upper().startswith("AAX") and codec.upper() != "AAXC":
-        # legacy format: needs the account's activation bytes, not a voucher
-        ab = auth.get_activation_bytes(filename=config.activation_bytes_file())
-        return DownloadTarget(asin=asin, url=str(url), codec=codec, activation_bytes=ab)
-
-    if codec.upper() == "AAXC":
+    # Modern Audible serves AAXC (voucher-encrypted) even when content_format is
+    # a legacy-looking string like "AAX_22_64" and drm_type is "Adrm" — the
+    # downloaded file's brand is still `aaxc` and ffmpeg needs -audible_key/-iv,
+    # not -activation_bytes. The reliable signal is an encrypted voucher
+    # (license_response) in the response; decrypt it for the AES key/iv. Only a
+    # genuinely voucher-less legacy AAX file falls back to account activation
+    # bytes.
+    if content_license.get("license_response"):
         voucher = decrypt_voucher(auth, lr)
-        return DownloadTarget(asin=asin, url=str(url), codec=codec, key=voucher.get("key"), iv=voucher.get("iv"))
+        return DownloadTarget(asin=asin, url=str(url), codec="AAXC", key=voucher.get("key"), iv=voucher.get("iv"))
+
+    if reported_format.upper().startswith("AAX"):
+        ab = auth.get_activation_bytes(filename=config.activation_bytes_file())
+        return DownloadTarget(asin=asin, url=str(url), codec="AAX", activation_bytes=ab)
 
     # DRM-free (rare, but some publishers opt out) — just a plain download.
-    return DownloadTarget(asin=asin, url=str(url), codec=codec)
+    return DownloadTarget(asin=asin, url=str(url), codec=reported_format or "UNKNOWN")
 
 
 # --------------------------------------------------------------- companion PDFs

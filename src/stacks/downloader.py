@@ -25,7 +25,7 @@ import httpx
 from . import api
 from .utils import sanitize
 
-BROWSER_UA = api.BROWSER_UA
+AUDIBLE_UA = api.AUDIBLE_UA
 
 
 class DownloadError(RuntimeError):
@@ -58,7 +58,7 @@ def _dest_filename(item: dict) -> str:
 
 
 def _stream_to_file(url: str, dest: Path, on_progress: Optional[Callable[[int, int], None]] = None) -> None:
-    headers = {"User-Agent": BROWSER_UA}
+    headers = {"User-Agent": AUDIBLE_UA}
     with httpx.Client(follow_redirects=True, timeout=httpx.Timeout(30, read=120)) as c:
         with c.stream("GET", url, headers=headers) as r:
             r.raise_for_status()
