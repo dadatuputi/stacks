@@ -148,19 +148,49 @@ def _ensure_library(profile: str) -> list[dict]:
 
 
 def pick_books(items: list[dict]) -> list[dict]:
-    query = _text("Search your library (title/author/series — Enter for everything):") or ""
-    matches = catalog.search_items(items, query)
-    if not matches:
-        warn("no matches")
-        return []
-    if len(matches) > 200:
-        warn(f"{len(matches)} matches — showing the first 200; narrow your search for the rest.")
-    choices = [Choice(catalog.label_for(i), value=i["asin"]) for i in matches[:200]]
-    picked_asins = _checkbox("Select books to download (space to toggle, enter to confirm):", choices)
-    if not picked_asins:
-        return []
+    """Search and select repeatedly, accumulating picks across rounds.
+
+    Each round runs one search and one checkbox; selections carry over, so you
+    can pull books from several different searches into a single download.
+    Titles already picked show up pre-checked when a later search surfaces them
+    again, and un-checking one removes it. Returns the combined selection in
+    the order it was made, de-duplicated by ASIN."""
     by_asin = {i["asin"]: i for i in items}
-    return [by_asin[a] for a in picked_asins]
+    picked: dict[str, dict] = {}
+
+    while True:
+        prompt = (
+            f"Search for more (Enter to finish, {len(picked)} selected):"
+            if picked
+            else "Search your library (title/author/series — Enter for everything):"
+        )
+        query = _text(prompt)
+        if query is None:  # cancelled
+            break
+        if picked and query == "":  # empty search once something's picked = done
+            break
+
+        matches = catalog.search_items(items, query)
+        if not matches:
+            warn("no matches")
+        else:
+            if len(matches) > 200:
+                warn(f"{len(matches)} matches — showing the first 200; narrow your search for the rest.")
+            shown = matches[:200]
+            choices = [Choice(catalog.label_for(i), value=i["asin"], checked=i["asin"] in picked) for i in shown]
+            chosen = _checkbox("Select books (space to toggle, enter to confirm):", choices)
+            if chosen is not None:
+                chosen_set = set(chosen)
+                for a in chosen:
+                    picked[a] = by_asin[a]
+                for i in shown:  # honor un-checks of previously-picked titles shown this round
+                    if i["asin"] in picked and i["asin"] not in chosen_set:
+                        picked.pop(i["asin"], None)
+
+        if not _confirm("Search and add more books?", default=False):
+            break
+
+    return list(picked.values())
 
 
 def _menu_download(profile: str, settings: Settings) -> None:
