@@ -5,6 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import questionary
+from prompt_toolkit import Application
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.layout import Layout
+from prompt_toolkit.layout.containers import Window
+from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.styles import Style as PTStyle
 from questionary import Choice
 
 from . import api, audit as audit_mod, auth as auth_mod, catalog, doctor as doctor_mod, downloader, matcher, organizer, tagger
@@ -39,6 +45,99 @@ def _text(message: str, **kw):
 
 def _confirm(message: str, default: bool = True):
     return questionary.confirm(message, default=default, style=_STYLE, qmark=QMARK).ask()
+
+
+_MENU_STYLE = PTStyle.from_dict(
+    {
+        "qmark": "#7dd3fc bold",
+        "message": "bold",
+        "pointer": "#7dd3fc bold",
+        "highlighted": "#7dd3fc bold",
+        "key": "#c084fc bold",
+        "hint": "#6b7280",
+    }
+)
+
+
+def _choice_title(ch) -> str:
+    t = getattr(ch, "title", ch)
+    if isinstance(t, str):
+        return t
+    if isinstance(t, list):  # prompt_toolkit formatted-text fragments
+        return "".join(frag[1] for frag in t)
+    return str(t)
+
+
+def _key_select(message: str, choices, *, inp=None, out=None):
+    """A single-keypress menu: pressing a choice's shortcut key selects AND
+    confirms it in one press (no Enter). Arrow keys + Enter still work, and
+    Ctrl-C cancels (returns None). Mirrors questionary's look via _MENU_STYLE.
+
+    `inp`/`out` are for tests (a pipe input + DummyOutput); production leaves
+    them None so prompt_toolkit uses the real terminal."""
+    items = list(choices)
+    index = [0]
+    n = len(items)
+
+    def render():
+        frags = [
+            ("class:qmark", "? "),
+            ("class:message", f"{message}  "),
+            ("class:hint", "(press a highlighted key, or ↑↓ then Enter)\n"),
+        ]
+        for i, ch in enumerate(items):
+            key = getattr(ch, "shortcut_key", None) or " "
+            title = _choice_title(ch)
+            pointer_style = "class:pointer" if i == index[0] else ""
+            title_style = "class:highlighted" if i == index[0] else ""
+            frags += [
+                (pointer_style, " ❯ " if i == index[0] else "   "),
+                ("class:key", f"{key}  "),
+                (title_style, f"{title}\n"),
+            ]
+        return frags
+
+    kb = KeyBindings()
+
+    @kb.add("up")
+    def _(event):
+        index[0] = (index[0] - 1) % n
+
+    @kb.add("down")
+    def _(event):
+        index[0] = (index[0] + 1) % n
+
+    @kb.add("enter")
+    def _(event):
+        event.app.exit(result=items[index[0]].value)
+
+    @kb.add("c-c")
+    def _(event):
+        event.app.exit(result=None)
+
+    def _bind(choice):
+        @kb.add(choice.shortcut_key, eager=True)
+        def _(event):
+            event.app.exit(result=choice.value)
+
+    for ch in items:
+        if getattr(ch, "shortcut_key", None):
+            _bind(ch)
+
+    app = Application(
+        layout=Layout(Window(FormattedTextControl(render), always_hide_cursor=True)),
+        key_bindings=kb,
+        style=_MENU_STYLE,
+        erase_when_done=True,
+        input=inp,
+        output=out,
+    )
+    result = app.run()
+    if result is not None:  # leave a compact record of the choice, like questionary
+        picked = next((c for c in items if c.value == result), None)
+        if picked is not None:
+            console.print(f"[accent]?[/accent] {message} [accent2]{_choice_title(picked)}[/accent2]")
+    return result
 
 
 # shortcut_key lets the user jump straight to an item by pressing one key
@@ -93,7 +192,7 @@ def run(profile: str = "default") -> None:
     settings = Settings.load()
 
     while True:
-        choice = _select("What would you like to do?", MENU_MAIN, use_shortcuts=True)
+        choice = _key_select("What would you like to do?", MENU_MAIN)
         if choice is None or choice == "exit":
             console.print("\n[accent]Happy listening. 🎧[/accent]\n")
             return
@@ -495,7 +594,7 @@ def _menu_doctor(profile: str) -> None:
 
 
 def _menu_account(profile: str) -> None:
-    choice = _select(
+    choice = _key_select(
         "Account",
         [
             Choice("Show status", "status", shortcut_key="s"),
@@ -504,7 +603,6 @@ def _menu_account(profile: str) -> None:
             Choice("Sign out", "logout", shortcut_key="o"),
             Choice("« back", "back", shortcut_key="b"),
         ],
-        use_shortcuts=True,
     )
     if choice == "status":
         s = auth_mod.status(profile)
