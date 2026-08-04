@@ -1,9 +1,10 @@
 # stacks
 
-A snazzy, interactive CLI for your Audible library: download books (single or
-in batch), decrypt them into plain `.m4b` files, stamp them with full
-metadata and cover art, and file them away into a tidy `Author/Title/`
-library — all from one command.
+Download, decrypt, tag, and organize your Audible library from a single
+command-line tool. stacks downloads books (individually or in batch), decrypts
+them to plain `.m4b` files, stamps full metadata and cover art, and files them
+into an `Author/Title/` library. It provides both an interactive menu and
+scriptable subcommands.
 
 ```
    _____ __             __
@@ -15,126 +16,121 @@ library — all from one command.
 your Audible library, downloaded · decrypted · tagged · shelved
 ```
 
-## What it does
+## Features
 
-- **Download** — pick books from a searchable, checkbox-driven picker (or
-  pass ASINs/search terms on the command line, or `--all`), and stacks
-  downloads them concurrently with live per-file progress bars.
-- **Decrypt** — Audible ships audio in an encrypted `AAX`/`AAXC` container.
-  stacks requests a license for each book the same way the official app
-  does, derives the decryption key from your own authenticated device
-  (nothing is "cracked" — this is the documented playback path for content
-  you already own), and remuxes straight to a plain `.m4b` via `ffmpeg`
-  stream-copy. No re-encoding, no quality loss, seconds per book.
+- **Download** — select books from a searchable checkbox picker, or pass
+  ASINs, search terms, or `--all` on the command line. Downloads run
+  concurrently with per-file progress bars.
+- **Decrypt** — Audible delivers audio in an encrypted AAX/AAXC container.
+  stacks requests a playback license for each book, derives the decryption key
+  from your authenticated device, and remuxes to `.m4b` with ffmpeg
+  stream-copy (no re-encoding). It works only on books your account owns.
 - **Enrich** — stamps title, author, narrator, series, genres, dates,
-  descriptions, copyright, and 2400px cover art onto every file, plus
-  ASIN/SKU/publisher/rating as iTunes-style freeform atoms. Works on books
-  downloaded elsewhere too — `stacks enrich` fuzzy-matches existing `.m4b`
-  files back to your library by ASIN, filename, title, or title+runtime.
+  description, copyright, and cover art (up to 2400px), plus ASIN, SKU,
+  publisher, and rating as freeform atoms. `stacks enrich` also tags files
+  obtained elsewhere by matching them to your library on ASIN, filename,
+  title, or title+runtime.
 - **Organize** — lays files out as `Author/Author - Title/`, resolving
-  same-author/same-title collisions with a narrator → year → ASIN
-  disambiguation ladder, and merges author-name spelling variants
-  (`J.R.R. Tolkien` / `J. R. R. Tolkien`) via a reviewable alias file.
-- **Companion PDFs** — fetches the reference PDFs some audiobooks ship
-  alongside the audio (maps, charts, slides), including the ones gated
-  behind account ownership.
-- **Audit** — a read-only health report on a folder of `.m4b` files:
-  chapter coverage, cover art presence/size, tag coverage.
-- **Doctor** — a one-shot preflight (`stacks doctor`) that verifies the
-  things a download silently depends on: an ffmpeg build with Audible AAXC
-  decrypt support, a login whose saved device identity can derive the
-  decryption key, a synced library cache, and a writable download folder with
-  room to spare. `--online` also pings Audible to confirm your token is live.
+  same-author/same-title collisions with a narrator → year → ASIN ladder and
+  merging author-name variants (`J.R.R. Tolkien` / `J. R. R. Tolkien`) through
+  a reviewable alias file.
+- **Companion PDFs** — downloads the reference PDFs some titles ship alongside
+  the audio, including owner-gated files.
+- **Audit** — read-only health report for a folder of `.m4b` files: chapter
+  coverage, cover art, and tag coverage.
+- **Doctor** — `stacks doctor` preflight-checks ffmpeg AAXC support, login and
+  device identity, library-cache freshness, and download-directory space.
+  `--online` adds a live API call to confirm the token is valid.
 
-Everything above is also a scriptable, flag-driven subcommand — the
-interactive menu is a convenience layer on top, not the only way in.
+Every capability is available as a scriptable subcommand; the interactive menu
+is a layer on top.
+
+## Requirements
+
+- Python 3.10+
+- [ffmpeg](https://ffmpeg.org/) on `PATH` (any recent build; AAX/AAXC demuxer
+  support is required and has shipped in ffmpeg for years)
 
 ## Install
 
-Requires Python 3.10+ and [ffmpeg](https://ffmpeg.org/) on your `PATH`
-(any reasonably recent build — the AAX/AAXC decrypt support has been in
-ffmpeg for years).
-
 ```bash
-# ffmpeg, if you don't have it
+# ffmpeg
 brew install ffmpeg          # macOS
 sudo apt install ffmpeg      # Debian/Ubuntu
 
-# clone and install
+# stacks
 git clone https://github.com/<you>/stacks.git
 cd stacks
 pipx install .               # or: pip install .
 ```
 
-`pipx` is recommended so `stacks` gets its own isolated environment.
+`pipx` is recommended so `stacks` runs in an isolated environment.
 
-## Quickstart
+## Usage
+
+Start the interactive menu:
 
 ```bash
-stacks              # interactive menu — start here
+stacks
 ```
 
-First run walks you through signing in to Audible (email, password, and
-whatever 2FA/CAPTCHA your account requires), then drops you into a menu:
-download books, enrich files you already have, organize a folder, fetch
-companion PDFs, or audit what's on disk.
+The first run signs you in to Audible (email, password, and any 2FA/CAPTCHA),
+then presents the menu: download, enrich, organize, fetch PDFs, audit, or run
+doctor.
 
-> **Not receiving the sign-in verification code?** If Audible's emailed/SMS
-> verification code never shows up, turn on an authenticator app under
-> **Amazon → Login & Security → Two-Step Verification**, then sign in again.
-> stacks will prompt for a time-based OTP code instead — it's generated by
-> your authenticator app rather than sent over email/SMS, so there's nothing
-> to wait on or lose to a spam filter, and it's noticeably more reliable.
-
-Everything is also scriptable:
+Scriptable subcommands:
 
 ```bash
-stacks doctor                                  # preflight: ffmpeg, login, cache, disk — before you download
-stacks auth login                              # one-time sign-in
-stacks library sync                            # cache your library (auto-runs on first use too)
-stacks library list --search "sanderson"       # browse the cache
+stacks doctor                              # preflight checks
+stacks auth login                          # one-time sign-in
+stacks library sync                        # cache the library (also runs on first use)
+stacks library list --search "sanderson"   # browse the cache
 
-stacks download --all --out ~/Audiobooks       # download everything
-stacks download B002V1O3XG B00ABCXYZ           # download specific ASINs
-stacks download "project hail mary"            # or search terms
+stacks download --all --out ~/Audiobooks   # download everything
+stacks download B002V1O3XG B00ABCXYZ       # specific ASINs
+stacks download "project hail mary"        # search terms
 
-stacks enrich ~/Audiobooks                     # tag files from any source
+stacks enrich ~/Audiobooks                 # tag files from any source
 stacks organize ~/Audiobooks --out ~/Library --apply
 stacks pdfs
 stacks audit ~/Library
 ```
 
-Run `stacks <command> --help` for the full flag list on any of these.
+Run `stacks <command> --help` for the options on any subcommand.
+
+### Sign-in verification codes
+
+If Audible's email or SMS verification code does not arrive, enable an
+authenticator app under Amazon → Login & Security → Two-Step Verification and
+sign in again. stacks then prompts for a time-based OTP code, which is
+generated locally and does not depend on email or SMS delivery.
 
 ## Configuration
 
-Everything lives under `~/.stacks` (override with `STACKS_HOME`):
+Files live under `~/.stacks` (override with `STACKS_HOME`):
 
-| Path | What |
+| Path | Contents |
 |---|---|
-| `auth-<profile>.json` | Saved login (optionally password-encrypted at rest) |
-| `settings.json` | Your defaults — download dir, quality, worker count, auto-enrich/organize |
-| `cache/library.json` | Your library metadata, refreshed via `stacks library sync` |
-| `cache/chapters.json` | Per-book chapter data, fetched lazily and cached |
+| `auth-<profile>.json` | Saved login, optionally password-encrypted at rest |
+| `settings.json` | Defaults: download directory, quality, worker count, auto-enrich/organize |
+| `cache/library.json` | Library metadata, refreshed by `stacks library sync` |
+| `cache/chapters.json` | Per-book chapter data, cached on demand |
 | `cache/pdfs/` | Downloaded companion PDFs |
-| `activation_bytes` | Cached legacy-AAX activation bytes, if your account needs them |
+| `activation_bytes` | Cached legacy-AAX activation bytes, when applicable |
 
-Multiple Audible accounts: `stacks --profile work download ...`.
+Use multiple accounts with `stacks --profile <name> ...`.
 
-## How the decrypt step works (and why it's not sketchy)
+## How decryption works
 
-Audible's official apps decrypt audio locally using a key derived from your
-authenticated device identity and a per-book license Audible issues to
-*your* account. `stacks` follows that exact same request flow — same
-license endpoint, same key derivation — via the well-documented
-[`audible`](https://github.com/mkb79/Audible) Python package and `ffmpeg`'s
-native AAX/AAXC demuxer support. It only works against books your signed-in
-account already owns; there's no secret being defeated, just the normal
-playback path run from a terminal instead of an app. That said, downloading
-DRM-wrapped content programmatically may still brush up against Audible's
-Terms of Service depending on how you use it — this tool is for making
-personal backups of books you've bought, for your own devices. Don't
-redistribute what it produces.
+Audible's apps decrypt audio locally using a key derived from the device
+identity and a per-book license issued to your account. stacks uses the same
+license endpoint and key derivation through the
+[`audible`](https://github.com/mkb79/Audible) package and ffmpeg's AAX/AAXC
+demuxer. It works only on books your signed-in account owns.
+
+Downloading DRM-protected content programmatically may conflict with Audible's
+Terms of Service. stacks is intended for personal backups of purchased books.
+Do not redistribute its output.
 
 ## Development
 
@@ -144,15 +140,15 @@ pytest
 ```
 
 The test suite covers the pure logic (title/author matching, filename
-sanitization, alias merging, folder-collision disambiguation) with
-synthetic data — no network or ffmpeg required to run it.
+sanitization, alias merging, folder-collision disambiguation, preflight
+checks, and auth-prompt handling) with synthetic data. No network or ffmpeg is
+required to run it.
 
 ## Acknowledgements
 
-Built on [`audible`](https://github.com/mkb79/Audible) for the Audible API
-client/auth, [`mutagen`](https://mutagen.readthedocs.io/) for MP4 tagging,
-and `ffmpeg` for the actual decrypt/remux. The request shapes for
-licensing and AAXC voucher decryption follow the same approach as
+Built on [`audible`](https://github.com/mkb79/Audible) (API client and auth),
+[`mutagen`](https://mutagen.readthedocs.io/) (MP4 tagging), and ffmpeg
+(decrypt/remux). The licensing and AAXC voucher request shapes follow
 [`audible-cli`](https://github.com/mkb79/audible-cli).
 
 ## License
