@@ -13,7 +13,7 @@ from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.styles import Style as PTStyle
 from questionary import Choice
 
-from . import api, audit as audit_mod, auth as auth_mod, catalog, doctor as doctor_mod, downloader, matcher, organizer, tagger
+from . import api, audit as audit_mod, auth as auth_mod, catalog, doctor as doctor_mod, downloader, matcher, organizer, reconcile as reconcile_mod, tagger
 from .config import Settings, pdf_cache_dir
 from .session import open_session
 from .ui import THEME, banner, console, download_progress, error, info, make_table, panel, random_tagline, step_progress, success, warn
@@ -144,6 +144,7 @@ def _key_select(message: str, choices, *, inp=None, out=None):
 # (mnemonic where possible), instead of arrowing down. Keys must be unique.
 MENU_MAIN = [
     Choice("📥  Download audiobooks", value="download", shortcut_key="d"),
+    Choice("🔎  Find missing downloads", value="missing", shortcut_key="m"),
     Choice("🏷️   Enrich existing .m4b files", value="enrich", shortcut_key="e"),
     Choice("🗂️   Organize into Author/Title folders", value="organize", shortcut_key="o"),
     Choice("📄  Fetch companion PDFs", value="pdfs", shortcut_key="p"),
@@ -210,6 +211,8 @@ def _dispatch(choice: str, profile: str, settings: Settings) -> None:
         _menu_sync(profile)
     elif choice == "download":
         _menu_download(profile, settings)
+    elif choice == "missing":
+        _menu_missing(profile, settings)
     elif choice == "enrich":
         _menu_enrich(settings)
     elif choice == "organize":
@@ -393,6 +396,52 @@ def run_downloads(auth, client, items, dest_path, quality, workers, do_enrich, d
         success(f"organized {len(entries)} book(s)")
         for line in log:
             console.print(f"    [dim]{line}[/dim]")
+
+
+# ------------------------------------------------------------------ missing
+
+
+def _menu_missing(profile: str, settings: Settings) -> None:
+    items = _ensure_library(profile)
+    if not items:
+        return
+
+    directory = _text("Folder to check for missing downloads:", default=settings.download_dir)
+    if not directory:
+        return
+    scan_dir = Path(directory).expanduser()
+    if not scan_dir.is_dir():
+        error(f"{scan_dir} is not a directory")
+        return
+
+    deep = _confirm("Deep scan (fuzzy-match files with no ASIN tag — slower)?", default=False)
+    with console.status(f"Scanning {scan_dir} for .m4b files...", spinner="dots12"):
+        found, unresolved = reconcile_mod.scan_local(scan_dir, deep=deep, items=items)
+    report = reconcile_mod.reconcile(items, found, unresolved)
+
+    from .cli import _render_missing
+
+    _render_missing(report, scan_dir)
+    if not report.missing:
+        success("nothing missing — your library is fully downloaded")
+        return
+
+    picked = report.missing
+    if _confirm(f"Cherry-pick from the {len(report.missing)} missing (otherwise download all)?", default=False):
+        picked = pick_books(report.missing)
+        if not picked:
+            info("nothing selected")
+            return
+
+    if not _confirm(f"Download {len(picked)} missing title(s) into {scan_dir}?", default=True):
+        return
+
+    quality = _select("Audio quality:", [Choice("High (best available)", "high"), Choice("Normal", "normal")], default="high") or settings.quality
+    with open_session(profile) as (auth, client):
+        run_downloads(
+            auth, client, picked, scan_dir, quality, settings.workers,
+            settings.auto_enrich, settings.auto_organize, settings.fetch_pdfs,
+        )
 
 
 # ------------------------------------------------------------------ enrich

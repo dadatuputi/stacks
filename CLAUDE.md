@@ -24,6 +24,7 @@ interactive menu (`stacks` with no args) and scriptable subcommands.
 | `downloader.py` | Stream-download the encrypted file, ffmpeg decrypt+remux to `.m4b`, best-effort chapter injection, concurrent batch orchestration. |
 | `tagger.py` | Stamps an Audible library `item` dict onto an `.m4b`'s MP4 atoms + cover art. Pure — no matching, no network beyond cover image fetch. |
 | `matcher.py` | Fuzzy-matches an arbitrary local `.m4b` back to a library item (ASIN tag → filename → title → title+duration → tokens/prefix+duration). Used by `enrich` for files that didn't come from `stacks download`. |
+| `reconcile.py` | Diffs the cached library against `.m4b` files on disk (recursive scan → ASIN via `organizer.file_asin`, optional `--deep` fuzzy fallback). Powers `stacks missing`. Pure/read-only. |
 | `organizer.py` | Folder-layout planning with narrator→year→ASIN disambiguation, author-alias clustering/suggestion. |
 | `audit.py` | Read-only ffprobe/mutagen report on a folder of `.m4b`s. |
 | `doctor.py` | Preflight diagnostics (ffmpeg+AAXC support, auth/device-identity, library cache, download-dir writability/space, optional live API probe). Pure/injectable check functions, testable without a real environment. |

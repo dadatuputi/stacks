@@ -13,7 +13,7 @@ from typing import List, Optional
 
 import typer
 
-from . import api, audit as audit_mod, auth as auth_mod, catalog, doctor as doctor_mod, matcher, organizer, tagger
+from . import api, audit as audit_mod, auth as auth_mod, catalog, doctor as doctor_mod, matcher, organizer, reconcile as reconcile_mod, tagger
 from .config import Settings, pdf_cache_dir
 from .session import open_session
 from .ui import console, error, info, make_table, panel, step_progress, success, warn
@@ -187,6 +187,83 @@ def download(
         from . import interactive
 
         interactive.run_downloads(auth, client, picked, dest, quality, workers, enrich, organize, pdfs)
+
+
+# ------------------------------------------------------------------- missing
+
+
+@app.command()
+def missing(
+    ctx: typer.Context,
+    dir: Optional[Path] = typer.Option(None, "--dir", "-d", help="Folder to scan (recursively). Defaults to your download dir."),
+    refresh: bool = typer.Option(False, "--refresh", help="Re-fetch the library from Audible before comparing."),
+    deep: bool = typer.Option(False, "--deep", help="Fuzzy-match files with no ASIN tag (slower — one ffprobe per file)."),
+    download: bool = typer.Option(False, "--download", help="Download the missing titles after reporting."),
+    workers: int = typer.Option(4, "--workers", "-w"),
+    quality: str = typer.Option("high", help="high | normal"),
+):
+    """Compare your Audible library to a folder of .m4b files and show (or download) what's missing."""
+    settings = Settings.load()
+
+    if refresh:
+        with open_session(ctx.obj["profile"]) as (_, client):
+            with console.status("Refreshing your Audible library...", spinner="dots12"):
+                items = api.fetch_library(client, refresh=True)
+    else:
+        items = catalog.load_cached_items()
+        if not items:
+            with open_session(ctx.obj["profile"]) as (_, client):
+                with console.status("First run — fetching your library...", spinner="dots12"):
+                    items = api.fetch_library(client)
+
+    scan_dir = (dir or Path(settings.download_dir)).expanduser()
+    if not scan_dir.is_dir():
+        error(f"{scan_dir} is not a directory")
+        raise typer.Exit(1)
+
+    with console.status(f"Scanning {scan_dir} for .m4b files...", spinner="dots12"):
+        found, unresolved = reconcile_mod.scan_local(scan_dir, deep=deep, items=items)
+    report = reconcile_mod.reconcile(items, found, unresolved)
+
+    _render_missing(report, scan_dir)
+
+    if not report.missing:
+        success("nothing missing — your library is fully downloaded")
+        return
+    if not download:
+        info(f"pass --download to fetch the {len(report.missing)} missing title(s)")
+        return
+
+    dest = scan_dir
+    panel(f"[bold]{len(report.missing)}[/bold] missing → [bold]{dest}[/bold]  (quality={quality}, workers={workers})", title="Downloading missing")
+    with open_session(ctx.obj["profile"]) as (auth, client):
+        from . import interactive
+
+        interactive.run_downloads(
+            auth, client, report.missing, dest, quality, workers,
+            settings.auto_enrich, settings.auto_organize, settings.fetch_pdfs,
+        )
+
+
+def _render_missing(report: reconcile_mod.ReconcileReport, scan_dir: Path) -> None:
+    """Print the reconcile summary + the missing-titles table. Shared by CLI and menu."""
+    panel(
+        f"[bold]{report.total_library}[/bold] in library — "
+        f"[success]{len(report.present)}[/success] on disk, "
+        f"[danger]{len(report.missing)}[/danger] missing\n"
+        f"unknown on disk: [bold]{len(report.unknown)}[/bold]   "
+        f"unresolved files: [bold]{len(report.unresolved)}[/bold]",
+        title=f"Missing — {scan_dir}",
+    )
+    if report.missing:
+        table = make_table(f"Missing ({len(report.missing)})", ["Author", "Title", "Series", "Year", "Runtime", "ASIN"])
+        for item in report.missing[:200]:
+            table.add_row(*catalog.table_row(item))
+        console.print(table)
+        if len(report.missing) > 200:
+            info(f"... and {len(report.missing) - 200} more")
+    if report.unresolved:
+        warn(f"{len(report.unresolved)} file(s) had no resolvable ASIN (try --deep, or run `stacks enrich`)")
 
 
 # -------------------------------------------------------------------- enrich
