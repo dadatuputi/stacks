@@ -13,7 +13,7 @@ from typing import List, Optional
 
 import typer
 
-from . import api, audit as audit_mod, auth as auth_mod, catalog, doctor as doctor_mod, matcher, organizer, tagger
+from . import absmeta, api, audit as audit_mod, auth as auth_mod, catalog, doctor as doctor_mod, matcher, organizer, tagger
 from .config import Settings, pdf_cache_dir
 from .session import open_session
 from .ui import console, error, info, make_table, panel, step_progress, success, warn
@@ -288,6 +288,45 @@ def organize(
         return
     organizer.apply_plan(entries, out, pdf_cache_dir(), write_cover=cover_file, copy=copy)
     success(f"organized {len(entries)} book(s) into {out}")
+
+
+# ------------------------------------------------------------------ metadata
+
+
+@app.command()
+def metadata(
+    path: Path = typer.Argument(..., help="An organized library, or any folder tree containing .m4b files."),
+):
+    """Write Audiobookshelf sidecars next to every .m4b in a folder tree.
+
+    Each book folder gets a `metadata.json` in Audiobookshelf's schema plus the
+    full Audible record as `audible.json`. `stacks organize` already does this;
+    run this command to refresh a library in place — in particular to repair
+    one organized by stacks <= 0.1.0, which wrote the raw Audible dump *as*
+    `metadata.json`, where Audiobookshelf read it as authoritative and blanked
+    every book's author and series.
+    """
+    items = catalog.load_cached_items()
+    if not items:
+        error("no cached library — run `stacks library sync` first")
+        raise typer.Exit(1)
+    by_asin = {i["asin"]: i for i in items}
+
+    written, unmatched = 0, []
+    for m4b in sorted(path.rglob("*.m4b")):
+        asin = organizer.file_asin(m4b)
+        if asin and asin in by_asin:
+            absmeta.write_sidecars(m4b.parent, by_asin[asin])
+            written += 1
+        else:
+            unmatched.append(m4b)
+
+    if unmatched:
+        warn(f"{len(unmatched)} file(s) have no ASIN match (run `stacks enrich` first): " + ", ".join(p.name for p in unmatched[:5]))
+    if not written:
+        error(f"no matching .m4b files under {path}")
+        raise typer.Exit(1)
+    success(f"wrote metadata.json + audible.json for {written} book(s)")
 
 
 # ---------------------------------------------------------------------- pdfs

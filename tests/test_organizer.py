@@ -63,3 +63,52 @@ def test_suggest_aliases_never_merges_different_people():
     items = [_item("B001", "T1", author="Robert Bly"), _item("B002", "T2", author="Robert Moore")]
     out = suggest_aliases(items)
     assert out == {}
+
+
+def test_apply_plan_writes_abs_metadata_and_raw_dump(tmp_path):
+    import json
+
+    from stacks.organizer import apply_plan
+
+    src = tmp_path / "in" / "dracula.m4b"
+    src.parent.mkdir()
+    src.write_bytes(b"not really an m4b")
+    item = _item("B001", "Dracula", narrators=["Alan Cumming"], year=1897)
+    item["series"] = [{"title": "Classics", "sequence": "3"}]
+    entries = plan({"B001": item}, {src: "B001"}, {})
+
+    out = tmp_path / "out"
+    apply_plan(entries, out, pdf_dir=None, write_cover=False, copy=False)
+    book_dir = out / entries[0].dir
+
+    assert json.loads((book_dir / "audible.json").read_text()) == item
+    meta = json.loads((book_dir / "metadata.json").read_text())
+    assert meta["authors"] == ["Bram Stoker"]
+    assert meta["series"] == ["Classics #3"]
+    assert "publication_datetime" not in meta
+
+
+def test_apply_plan_refreshes_metadata_for_an_already_organized_book(tmp_path):
+    import json
+
+    from stacks.organizer import apply_plan
+
+    src = tmp_path / "in" / "dracula.m4b"
+    src.parent.mkdir()
+    src.write_bytes(b"not really an m4b")
+    item = _item("B001", "Dracula")
+    entries = plan({"B001": item}, {src: "B001"}, {})
+
+    out = tmp_path / "out"
+    book_dir = out / entries[0].dir
+    book_dir.mkdir(parents=True)
+    (book_dir / entries[0].m4b_name).write_bytes(b"already here")
+    # a legacy raw dump under the name Audiobookshelf reads as authoritative
+    (book_dir / "metadata.json").write_text(json.dumps(item))
+
+    log = apply_plan(entries, out, pdf_dir=None, write_cover=False, copy=False)
+
+    assert "SKIP" in log[0]
+    assert json.loads((book_dir / "metadata.json").read_text())["authors"] == ["Bram Stoker"]
+    assert (book_dir / "audible.json").exists()
+    assert src.exists()  # the skip must not consume the source file

@@ -16,6 +16,7 @@ from typing import Optional
 
 from mutagen.mp4 import MP4
 
+from . import absmeta
 from .utils import ASIN_IN_NAME, sanitize, same_person
 
 FF = "com.apple.iTunes"
@@ -168,7 +169,11 @@ def apply_plan(entries: list[PlanEntry], out_root: Path, pdf_dir: Optional[Path]
         d.mkdir(parents=True, exist_ok=True)
         dest = d / e.m4b_name
         if dest.exists():
-            log.append(f"SKIP (exists): {dest}")
+            # Still refresh the sidecars: this is what migrates a folder laid
+            # out by an older stacks, whose metadata.json was a raw Audible
+            # dump that Audiobookshelf read as authoritative (and empty).
+            absmeta.write_sidecars(d, e.item)
+            log.append(f"SKIP (exists, metadata refreshed): {dest}")
             continue
         (shutil.copy2 if copy else shutil.move)(str(e.src), str(dest))
 
@@ -180,6 +185,8 @@ def apply_plan(entries: list[PlanEntry], out_root: Path, pdf_dir: Optional[Path]
         if write_cover:
             extract_cover(dest, d / "cover")
 
-        (d / "metadata.json").write_text(json.dumps(e.item, indent=1, ensure_ascii=False))
+        # metadata.json in the Audiobookshelf schema + the raw product dump
+        # alongside it as audible.json (a name ABS ignores).
+        absmeta.write_sidecars(d, e.item)
         log.append(f"{e.dir}/{e.m4b_name}")
     return log

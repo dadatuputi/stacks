@@ -24,7 +24,8 @@ interactive menu (`stacks` with no args) and scriptable subcommands.
 | `downloader.py` | Stream-download the encrypted file, ffmpeg decrypt+remux to `.m4b`, best-effort chapter injection, concurrent batch orchestration. |
 | `tagger.py` | Stamps an Audible library `item` dict onto an `.m4b`'s MP4 atoms + cover art. Pure — no matching, no network beyond cover image fetch. |
 | `matcher.py` | Fuzzy-matches an arbitrary local `.m4b` back to a library item (ASIN tag → filename → title → title+duration → tokens/prefix+duration). Used by `enrich` for files that didn't come from `stacks download`. |
-| `organizer.py` | Folder-layout planning with narrator→year→ASIN disambiguation, author-alias clustering/suggestion. |
+| `organizer.py` | Folder-layout planning with narrator→year→ASIN disambiguation, author-alias clustering/suggestion. Writes the per-book sidecars via `absmeta`. |
+| `absmeta.py` | Maps an Audible product dict onto Audiobookshelf's `metadata.json` schema, and writes it plus the raw dump as `audible.json`. Pure, no network. |
 | `audit.py` | Read-only ffprobe/mutagen report on a folder of `.m4b`s. |
 | `doctor.py` | Preflight diagnostics (ffmpeg+AAXC support, auth/device-identity, library cache, download-dir writability/space, optional live API probe). Pure/injectable check functions, testable without a real environment. |
 | `catalog.py` | Presentation-layer search/labeling over the cached library, used by both `cli.py` and `interactive.py`. |
@@ -82,6 +83,36 @@ pip install -e ".[dev]"
 pytest -q          # 24 tests, all pure-function, no network/ffmpeg required
 python -m pyflakes src/stacks/*.py   # should be silent
 ```
+
+## Audiobookshelf sidecars (2026-08-27)
+
+`organizer.apply_plan` used to dump the raw Audible product dict (~156 keys)
+into each book folder as `metadata.json`. That name is Audiobookshelf's
+`absMetadata` source, which is **last in ABS's default precedence and therefore
+highest priority** — above folder structure and embedded audio tags. ABS
+type-checks each key and silently drops mismatches, and its `stringArray`
+validator filters out non-strings, so `authors: [{name: ...}]` validated down
+to `[]` — ABS authoritatively setting every book's authors and series to empty.
+Reported against a real 261-book library.
+
+Now: the raw dump goes to `audible.json` (a name ABS ignores) and `absmeta.py`
+builds a real ABS-schema `metadata.json` alongside it. Things to keep in mind
+when touching `absmeta.py`:
+
+- Only keys in `ABS_KEYS` may be written, in ABS's expected types — a wrong
+  type is worse than a missing key, because ABS overwrites with the empty
+  validated value rather than falling through to the next source.
+- A series sequence is parsed by ABS with `/ #([^#\s]+)$/`. A sequence
+  containing whitespace or a second `#` would be swallowed into the series
+  *name*, so `_series` drops the sequence rather than mis-name the series.
+- Chapters are all-or-nothing in ABS (one bad entry rejects the whole array),
+  hence `clean_chapters` returning None instead of a partial list. Nothing
+  currently passes chapters — the `.m4b`'s embedded chapters already reach ABS
+  through `audioMetatags` — but `chapters_from_audible` is there for the
+  `api.fetch_chapters` payload if a caller wants them.
+- Migration: renaming doesn't clean up files already on disk, so
+  `stacks metadata <library>` (menu: 🧾) rewrites the sidecars for an existing
+  tree, and `apply_plan` refreshes them even on its `SKIP (exists)` path.
 
 ## Things a next pass might reasonably improve
 

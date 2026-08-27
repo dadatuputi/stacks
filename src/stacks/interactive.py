@@ -13,7 +13,7 @@ from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.styles import Style as PTStyle
 from questionary import Choice
 
-from . import api, audit as audit_mod, auth as auth_mod, catalog, doctor as doctor_mod, downloader, matcher, organizer, tagger
+from . import absmeta, api, audit as audit_mod, auth as auth_mod, catalog, doctor as doctor_mod, downloader, matcher, organizer, tagger
 from .config import Settings, pdf_cache_dir
 from .session import open_session
 from .ui import THEME, banner, console, download_progress, error, info, make_table, panel, random_tagline, step_progress, success, warn
@@ -146,6 +146,7 @@ MENU_MAIN = [
     Choice("📥  Download audiobooks", value="download", shortcut_key="d"),
     Choice("🏷️   Enrich existing .m4b files", value="enrich", shortcut_key="e"),
     Choice("🗂️   Organize into Author/Title folders", value="organize", shortcut_key="o"),
+    Choice("🧾  Write Audiobookshelf metadata for a library", value="metadata", shortcut_key="m"),
     Choice("📄  Fetch companion PDFs", value="pdfs", shortcut_key="p"),
     Choice("🔍  Audit a folder's tag/chapter/cover health", value="audit", shortcut_key="a"),
     Choice("🩺  Doctor — check downloads will work", value="doctor", shortcut_key="c"),
@@ -214,6 +215,8 @@ def _dispatch(choice: str, profile: str, settings: Settings) -> None:
         _menu_enrich(settings)
     elif choice == "organize":
         _menu_organize(settings)
+    elif choice == "metadata":
+        _menu_metadata(profile)
     elif choice == "pdfs":
         _menu_pdfs(profile)
     elif choice == "audit":
@@ -499,6 +502,41 @@ def _menu_organize(settings: Settings) -> None:
     copy = _confirm("Copy instead of move (uses ~2x disk, leaves originals in place)?", default=False)
     organizer.apply_plan(entries, out_dir, pdf_cache_dir(), write_cover=True, copy=copy)
     success(f"organized {len(entries)} book(s) into {out_dir}")
+
+
+# ------------------------------------------------------------------ metadata
+
+
+def _menu_metadata(profile: str) -> None:
+    """Refresh the Audiobookshelf sidecars for an already-organized library —
+    `stacks organize` writes them too, this repairs a library in place."""
+    directory = _text("Organized library folder:")
+    if not directory:
+        return
+    root = Path(directory).expanduser()
+    if not root.is_dir():
+        error(f"{root} is not a directory")
+        return
+
+    items = _ensure_library(profile)
+    by_asin = {i["asin"]: i for i in items}
+
+    written, unmatched = 0, 0
+    with console.status(f"Writing metadata.json + audible.json under {root}...", spinner="dots12"):
+        for m4b in sorted(root.rglob("*.m4b")):
+            asin = organizer.file_asin(m4b)
+            if asin and asin in by_asin:
+                absmeta.write_sidecars(m4b.parent, by_asin[asin])
+                written += 1
+            else:
+                unmatched += 1
+
+    if unmatched:
+        warn(f"{unmatched} file(s) have no ASIN match — enrich them first")
+    if not written:
+        error(f"no matching .m4b files under {root}")
+        return
+    success(f"wrote metadata.json + audible.json for {written} book(s)")
 
 
 # ------------------------------------------------------------------ pdfs

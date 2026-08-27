@@ -33,7 +33,9 @@ your Audible library, downloaded · decrypted · tagged · shelved
 - **Organize** — lays files out as `Author/Author - Title/`, resolving
   same-author/same-title collisions with a narrator → year → ASIN ladder and
   merging author-name variants (`J.R.R. Tolkien` / `J. R. R. Tolkien`) through
-  a reviewable alias file.
+  a reviewable alias file. Each book folder also gets an
+  [Audiobookshelf](https://www.audiobookshelf.org/)-compatible `metadata.json`
+  (see below) and the full Audible product record as `audible.json`.
 - **Companion PDFs** — downloads the reference PDFs some titles ship alongside
   the audio, including owner-gated files.
 - **Audit** — read-only health report for a folder of `.m4b` files: chapter
@@ -92,6 +94,7 @@ stacks download "project hail mary"        # search terms
 
 stacks enrich ~/Audiobooks                 # tag files from any source
 stacks organize ~/Audiobooks --out ~/Library --apply
+stacks metadata ~/Library                  # refresh Audiobookshelf sidecars in place
 stacks pdfs
 stacks audit ~/Library
 ```
@@ -104,6 +107,40 @@ If Audible's email or SMS verification code does not arrive, enable an
 authenticator app under Amazon → Login & Security → Two-Step Verification and
 sign in again. stacks then prompts for a time-based OTP code, which is
 generated locally and does not depend on email or SMS delivery.
+
+## Audiobookshelf
+
+`stacks organize` writes two sidecar files into every book folder:
+
+| File | Read by | Contents |
+|---|---|---|
+| `metadata.json` | Audiobookshelf (`absMetadata`) | Title, subtitle, authors, narrators, series (`"Redwall #2"`), genres, tags, published year/date, publisher, description, ISBN, ASIN, language, explicit, abridged |
+| `audible.json` | nothing — informational | The complete Audible product record, every field, unmodified |
+
+Audiobookshelf reads a book folder's `metadata.json` as its highest-priority
+metadata source, above folder structure and embedded audio tags, and discards
+any value whose type it does not expect. So the file has to be in ABS's own
+schema: authors and narrators as plain strings, a series as `"Name #Sequence"`,
+`publishedYear` as a string. The raw Audible record is not in that shape, which
+is why it lives under a filename ABS ignores.
+
+The `asin` field is included, so a later Quick Match in Audiobookshelf is an
+exact lookup rather than a title guess.
+
+Both files are written by `stacks organize`, and by `stacks metadata <folder>`
+for a library that is already laid out:
+
+```bash
+stacks metadata ~/Library    # refresh the sidecars in place, no files moved
+```
+
+> **Upgrading from stacks ≤ 0.1.0.** Older versions wrote the raw Audible dump
+> *as* `metadata.json`. Audiobookshelf accepted it as authoritative and
+> validated its mismatched field types down to empty, clearing the author and
+> series on every scanned book, and dropping publisher, year and description
+> with them. Renaming the file in a new version does not clean up copies
+> already on disk: run `stacks metadata <library>` once over an existing
+> library to overwrite them, then rescan in Audiobookshelf.
 
 ## Configuration
 
