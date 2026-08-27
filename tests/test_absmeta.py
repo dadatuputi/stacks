@@ -98,6 +98,18 @@ def test_description_has_no_markup_or_entities():
     assert "First & foremost." in desc
 
 
+def test_double_encoded_entities_are_fully_decoded():
+    # Audible sometimes ships &amp;amp; (or a whole tag encoded as text); one
+    # unescape pass would leave &amp; and <p> behind.
+    item = {
+        "title": "Cats &amp;amp; Dogs",
+        "publisher_summary": "&lt;p&gt;Bella &amp;amp; friends&lt;/p&gt;",
+    }
+    meta = absmeta.build_metadata(item)
+    assert meta["title"] == "Cats & Dogs"
+    assert meta["description"] == "Bella & friends"
+
+
 def test_description_falls_back_to_merchandising_summary():
     item = {"publisher_summary": "", "merchandising_summary": "<p>Short blurb</p>"}
     assert absmeta.build_metadata(item)["description"] == "Short blurb"
@@ -110,9 +122,15 @@ def test_published_year_is_a_four_char_string_from_a_datetime():
     assert meta["publishedDate"] == "2004-10-29"
 
 
-def test_abridged_and_explicit_coercion():
+def test_abridged_is_mapped_explicitly_never_inferred_from_not_unabridged():
+    # original_recording covers lecture series, talks and audio-first works —
+    # ~7% of a real library, and none of them are abridgements.
     assert absmeta.build_metadata({"format_type": "abridged"})["abridged"] is True
     assert absmeta.build_metadata({"format_type": "Unabridged"})["abridged"] is False
+    assert absmeta.build_metadata({"format_type": "original_recording"})["abridged"] is False
+    # an unrecognized format is left null rather than guessed at
+    assert absmeta.build_metadata({"format_type": "audio_drama"})["abridged"] is None
+    assert absmeta.build_metadata({})["abridged"] is None
     assert absmeta.build_metadata({"is_adult_product": "true"})["explicit"] is True
     assert absmeta.build_metadata({"is_adult_product": "nope"})["explicit"] is None
 
