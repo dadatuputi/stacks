@@ -110,6 +110,17 @@ when touching `absmeta.py`:
   currently passes chapters — the `.m4b`'s embedded chapters already reach ABS
   through `audioMetatags` — but `chapters_from_audible` is there for the
   `api.fetch_chapters` payload if a caller wants them.
+- `abridged` comes from an explicit `format_type` map, never
+  `fmt != "unabridged"`: Audible uses `original_recording` for lecture series
+  and audio-first works (238/18/4 unabridged/original_recording/abridged in a
+  261-book sample), so the naive comparison mislabels ~7% of a library.
+  Unrecognized formats stay null.
+- Entities are decoded in a loop (`_decode_entities`, `_plain_text`) because
+  Audible summaries are sometimes double-encoded — one `html.unescape` pass
+  leaves `&amp;` behind, or reveals markup that then still needs stripping.
+- `publishedYear`/`publishedDate` are the *recording's* release date, not the
+  work's publication date. That's the honest value for an audiobook library;
+  just don't describe it as the book's publication year.
 - Migration: renaming doesn't clean up files already on disk, so
   `stacks metadata <library>` (menu: 🧾) rewrites the sidecars for an existing
   tree, and `apply_plan` refreshes them even on its `SKIP (exists)` path.

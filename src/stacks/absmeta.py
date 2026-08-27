@@ -52,8 +52,30 @@ ABS_KEYS = (
 #: drop such a sequence rather than mis-name the series.
 _SAFE_SEQUENCE = re.compile(r"^[^#\s]+$")
 
+#: ``publishedYear``/``publishedDate`` are the *recording's* release date — when
+#: Audible published this audiobook, not when the book was first published.
+#: Redwall (the 1986 novel) carries a 2003 recording date, and that is what ABS
+#: gets: it is the honest value for an audiobook library, but it is not the
+#: work's publication year and must not be presented as one.
 _DATE_KEYS = ("release_date", "issue_date", "publication_datetime")
+
+#: Explicit, because "not unabridged" is not the same as "abridged".
+_ABRIDGED_BY_FORMAT = {"abridged": True, "unabridged": False, "original_recording": False}
+
+#: Bound on :func:`_plain_text`'s decode/strip loop.
+_MAX_DECODE_PASSES = 5
 _SUMMARY_KEYS = ("publisher_summary", "merchandising_summary", "extended_product_description")
+
+
+def _decode_entities(value: str) -> str:
+    """``html.unescape`` until the string stops changing. Audible sometimes
+    double-encodes (``&amp;amp;``), which a single pass leaves as ``&amp;``."""
+    for _ in range(_MAX_DECODE_PASSES):
+        decoded = html.unescape(value)
+        if decoded == value:
+            break
+        value = decoded
+    return value
 
 
 def _text(value: Any) -> Optional[str]:
@@ -66,7 +88,7 @@ def _text(value: Any) -> Optional[str]:
         value = str(value)
     if not isinstance(value, str):
         return None
-    return html.unescape(value).strip() or None
+    return _decode_entities(value).strip() or None
 
 
 def _bool(value: Any) -> Optional[bool]:
@@ -145,19 +167,40 @@ def _genres_and_tags(item: dict) -> tuple[list[str], list[str]]:
     return names[:1], names[1:]
 
 
+def _plain_text(raw: str) -> str:
+    """Strip markup down to plain text, decoding entities *repeatedly*.
+
+    Audible's summaries are sometimes double-encoded (``&amp;amp;``, or a whole
+    ``&lt;p&gt;`` tag encoded as text), so one unescape pass leaves ``&amp;``
+    behind or reveals markup that then needs stripping. Loop until the string
+    stops changing, bounded so a pathological input can't spin."""
+    out = raw
+    for _ in range(_MAX_DECODE_PASSES):
+        stripped = strip_html(out)
+        if stripped == out:
+            break
+        out = stripped
+    return out
+
+
 def _description(item: dict) -> Optional[str]:
     for key in _SUMMARY_KEYS:
         raw = item.get(key)
         if isinstance(raw, str) and raw.strip():
-            return strip_html(raw) or None
+            return _plain_text(raw) or None
     return None
 
 
 def _abridged(item: dict) -> Optional[bool]:
+    """Map ``format_type`` explicitly — deliberately *not*
+    ``fmt != "unabridged"``. Audible files lecture series, talks and
+    audio-first works (The Great Courses, author lectures) as
+    ``original_recording``, and those are not abridgements: in a 261-book
+    sample the split was 238 unabridged / 18 original_recording / 4 abridged,
+    so the naive comparison mislabels ~7% of a library. An unrecognized value
+    is left null rather than guessed at."""
     fmt = _text(item.get("format_type"))
-    if not fmt:
-        return None
-    return fmt.lower() != "unabridged"
+    return _ABRIDGED_BY_FORMAT.get(fmt.lower()) if fmt else None
 
 
 def _seconds(chapter: dict, *keys: str) -> Optional[float]:

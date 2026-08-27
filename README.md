@@ -127,6 +127,18 @@ is why it lives under a filename ABS ignores.
 The `asin` field is included, so a later Quick Match in Audiobookshelf is an
 exact lookup rather than a title guess.
 
+Two details of that mapping are worth knowing:
+
+- **`publishedYear` is the recording's release year, not the book's.** Audible's
+  `release_date` records when the *audiobook* was published, so the 1986 Redwall
+  novel carries its 2003 recording date. That is the right value for an
+  audiobook library, but do not read it as the work's original publication year.
+- **`abridged` is mapped from `format_type` explicitly**, never as "anything
+  that isn't unabridged". Audible files lecture series, talks and audio-first
+  works as `original_recording` (about 7% of a real library), and those are
+  marked unabridged, not abridged. An unrecognized format is left unset rather
+  than guessed at.
+
 Both files are written by `stacks organize`, and by `stacks metadata <folder>`
 for a library that is already laid out:
 
